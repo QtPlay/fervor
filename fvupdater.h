@@ -6,6 +6,8 @@
 #include <QNetworkAccessManager>
 #include <QUrl>
 #include <QXmlStreamReader>
+#include <QNetworkReply>
+
 class QNetworkReply;
 class FvUpdateWindow;
 class FvUpdateConfirmDialog;
@@ -30,6 +32,7 @@ public:
 	void setRequiredSslFingerPrint(QString md5);
 	QString getRequiredSslFingerPrint();	// returns md5!
 	// HTTP Authentuication - for security reasons no getters are provided, only a setter
+    void setFtpCredentials(QString user, QString pass);
 	void setHtAuthCredentials(QString user, QString pass);
 	void setHtAuthUsername(QString user);
 	void setHtAuthPassword(QString pass);
@@ -43,7 +46,7 @@ public slots:
 
 	// Check for updates
 	bool CheckForUpdates(bool silentAsMuchAsItCouldGet = true);
-
+    void showFeedError(QNetworkReply::NetworkError code);
 	// Aliases
 	bool CheckForUpdatesSilent();
 	bool CheckForUpdatesNotSilent();
@@ -161,10 +164,9 @@ private slots:
 
 	void authenticationRequired ( QNetworkReply * reply, QAuthenticator * authenticator );
 	void httpFeedReadyRead();
-	void httpFeedUpdateDataReadProgress(qint64 bytesRead,
-										qint64 totalBytes);
-	void httpFeedDownloadFinished();
-
+    void feedDataReadProgress(qint64 bytesRead,
+                                    qint64 totalBytes);
+    void feedDownloadFinished();
 	//
 	// Download and install Update infrastructure
 	//

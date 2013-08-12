@@ -8,7 +8,7 @@ contains(QT_VERSION, ^5\\.[0-9]\\..*){
 DEFINES += FV_APP_NAME=\\\"$$TARGET\\\"
 DEFINES += FV_APP_VERSION=\\\"$$VERSION\\\"
 
-
+win32:LIBS += -lShell32
 
 DEFINES +=QUAZIP_BUILD QUAZIP_STATIC
 

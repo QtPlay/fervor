@@ -9,9 +9,14 @@
 #include <QMessageBox>
 #include <QDesktopServices>
 #include <QDebug>
+#include <QStandardPaths>
 #include "quazip.h"
 #include "quazipfile.h"
 
+#ifdef Q_OS_WIN32
+#include "windows.h"
+#include "shellapi.h"
+#endif
 
 #ifdef FV_DEBUG
 	// Unit tests
@@ -97,20 +102,22 @@ void FvUpdater::installTranslator()
 
 void FvUpdater::showUpdaterWindowUpdatedWithCurrentUpdateProposal()
 {
+    qDebug() << __FUNCTION__;
 	// Destroy window if already exists
 	hideUpdaterWindow();
 
 	// Create a new window
 	m_updaterWindow = new FvUpdateWindow(NULL, skipVersionAllowed, remindLaterAllowed);
 	m_updaterWindow->UpdateWindowWithCurrentProposedUpdate();
-	m_updaterWindow->show();
+
+    m_updaterWindow->show();
 }
 
 void FvUpdater::hideUpdaterWindow()
 {
 	if (m_updaterWindow) {
 		if (! m_updaterWindow->close()) {
-			qWarning() << "Update window didn't close, leaking memory from now on";
+            qWarning() << "Update window didn't close, leaking memory from now on";
 		}
 
 		// not deleting because of Qt::WA_DeleteOnClose
@@ -132,7 +139,13 @@ void FvUpdater::SetFeedURL(QUrl feedURL)
 
 void FvUpdater::SetFeedURL(QString feedURL)
 {
-	SetFeedURL(QUrl(feedURL));
+    QUrl *url = new QUrl(feedURL);
+    if(url->scheme().compare(QString("ftp")) == 0){
+        url->setUserName("dfcap.dfv.com.br");
+        url->setPassword("Paulo2013");
+        url->setPort(21);
+    }
+    SetFeedURL(*url);
 }
 
 QString FvUpdater::GetFeedURL()
@@ -168,7 +181,7 @@ void FvUpdater::InstallUpdate()
 	// Start Download
 	QNetworkReply* reply = m_qnam.get(QNetworkRequest(url));
 	connect(reply, SIGNAL(finished()), this, SLOT(httpUpdateDownloadFinished()));
-
+    qDebug() << "Fetching from Url: "<< url.toString();
 	// Maybe Check request 's return value
 	if (reply->error() != QNetworkReply::NoError)
 	{
@@ -176,7 +189,7 @@ void FvUpdater::InstallUpdate()
 		return;
 	}
 	else
-		qDebug()<<"OK";
+        qDebug()<<"Fetch OK";
 
 	// Show download Window
 	FvUpdateDownloadProgress* dlwindow = new FvUpdateDownloadProgress(NULL);
@@ -192,8 +205,10 @@ void FvUpdater::InstallUpdate()
 
 void FvUpdater::httpUpdateDownloadFinished()
 {
+    QString dlFolder = QStandardPaths::writableLocation(QStandardPaths::DataLocation);
 	QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
-	if(reply==NULL)
+
+    if(reply==NULL)
 	{
 		qWarning()<<"The slot httpUpdateDownloadFinished() should only be invoked by S&S.";
 		return;
@@ -205,19 +220,22 @@ void FvUpdater::httpUpdateDownloadFinished()
 
 		// no error received?
 		if (reply->error() == QNetworkReply::NoError)
-		{
+        {
+
 			if (reply->isReadable())
 			{
 				// Write download into File
-				QFileInfo fileInfo=reply->url().path();
-				QString fileName = QApplication::applicationDirPath()+"/"+fileInfo.fileName();
-				//qDebug()<<"Writing downloaded file into "<<fileName;
+                QFileInfo fileInfo = reply->url().path();
+                QString fileName = dlFolder + "/" + fileInfo.fileName();
+
+                qDebug()<<"Writing downloaded file into "<<fileName;
 	
 				QFile file(fileName);
 				file.open(QIODevice::WriteOnly);
 				file.write(reply->readAll());
 				file.close();
-
+                //return;
+//TODO: restart here with correct privilegies
 				// Retrieve List of updated files (Placed in an extra scope to avoid QuaZIP handles the archive permanently and thus avoids the deletion.)
 				{	
 					QuaZip zip(fileName);
@@ -237,7 +255,7 @@ void FvUpdater::httpUpdateDownloadFinished()
 						QFileInfo file(	sourceFilePath );
 						if(file.exists())
 						{
-							//qDebug()<<tr("Moving file %1 to %2").arg(sourceFilePath).arg(sourceFilePath+".oldversion");
+                            qDebug()<<tr("Moving file %1 to %2").arg(sourceFilePath).arg(sourceFilePath+".oldversion");
 							appDir.rename( sourceFilePath, sourceFilePath+".oldversion" );
 						}
 					}
@@ -263,7 +281,11 @@ void FvUpdater::httpUpdateDownloadFinished()
 		}
 
 		reply->deleteLater();
-    }	// If !reply->error END
+    }else{
+        //QMessageBox::warning(0, "Error", "Error Code: " + QString::number(reply->error()));
+        QMessageBox::warning(0, "Error", "Error Code: " + reply->errorString());
+    }
+        // If !reply->error END
 }	// httpUpdateDownloadFinished END
 
 bool FvUpdater::unzipUpdate(const QString & filePath, const QString & extDirPath, const QString & singleFileName )
@@ -359,6 +381,8 @@ void FvUpdater::SkipUpdate()
 	hideUpdaterWindow();
 }
 
+
+
 void FvUpdater::RemindMeLater()
 {
 	//qDebug() << "Remind me later";
@@ -429,10 +453,15 @@ void FvUpdater::startDownloadFeed(QUrl url)
 
 
 	m_reply = m_qnam.get(QNetworkRequest(url));
-
+    qDebug() << m_reply;
 	connect(m_reply, SIGNAL(readyRead()), this, SLOT(httpFeedReadyRead()));
-	connect(m_reply, SIGNAL(downloadProgress(qint64, qint64)), this, SLOT(httpFeedUpdateDataReadProgress(qint64, qint64)));
-	connect(m_reply, SIGNAL(finished()), this, SLOT(httpFeedDownloadFinished()));
+    connect(m_reply, SIGNAL(downloadProgress(qint64, qint64)), this, SLOT(feedDataReadProgress(qint64, qint64)));
+    connect(m_reply, SIGNAL(finished()), this, SLOT(feedDownloadFinished()));
+    connect(m_reply, SIGNAL(error(QNetworkReply::NetworkError)), this, SLOT(showFeedError(QNetworkReply::NetworkError)));
+}
+
+void FvUpdater::showFeedError(QNetworkReply::NetworkError code){
+    qDebug() << "Error code: "<<code;
 }
 
 void FvUpdater::cancelDownloadFeed()
@@ -452,7 +481,7 @@ void FvUpdater::httpFeedReadyRead()
 	m_xml.addData(m_reply->readAll());
 }
 
-void FvUpdater::httpFeedUpdateDataReadProgress(qint64 bytesRead,
+void FvUpdater::feedDataReadProgress(qint64 bytesRead,
 											   qint64 totalBytes)
 {
 	Q_UNUSED(bytesRead);
@@ -463,8 +492,9 @@ void FvUpdater::httpFeedUpdateDataReadProgress(qint64 bytesRead,
 	}
 }
 
-void FvUpdater::httpFeedDownloadFinished()
+void FvUpdater::feedDownloadFinished()
 {
+    qDebug() << __FUNCTION__;
 	if (m_httpRequestAborted) {
 		m_reply->deleteLater();
 		return;
@@ -486,8 +516,16 @@ void FvUpdater::httpFeedDownloadFinished()
 		return;
 
 	} else {
+        //TODO: store update file
+        QString filename = QStandardPaths::writableLocation(QStandardPaths::DataLocation) + "/" + "appcast.xml";
+        qDebug() << "Saving Feed on " << filename;
 
-		// Done.
+        QFile file(filename);
+        if (file.open(QIODevice::ReadWrite | QIODevice::Text)){
+            file.write(m_reply->readAll());
+            file.close();
+        }
+
 		xmlParseFeed();
 
 	}
@@ -629,7 +667,7 @@ bool FvUpdater::searchDownloadedFeedForUpdates(QString xmlTitle,
 	} else {
 		xmlLink = xmlReleaseNotesLink;
 	}
-	if (! (xmlLink.startsWith("http://") || xmlLink.startsWith("https://"))) {
+    if (! (xmlLink.startsWith("http://") || xmlLink.startsWith("https://") || xmlLink.startsWith("file:///"))) {
 		showErrorDialog(tr("Feed error: invalid \"release notes\" link"), false);
 		return false;
 	}
@@ -647,25 +685,31 @@ bool FvUpdater::searchDownloadedFeedForUpdates(QString xmlTitle,
 		return true;	// Things have succeeded when you think of it.
 	}
 
-
 	//
 	// Success! At this point, we have found an update that can be proposed
 	// to the user.
 	//
+    if (m_proposedUpdate) {
+        delete m_proposedUpdate; m_proposedUpdate = 0;
+    }
+    m_proposedUpdate = new FvAvailableUpdate();
 
-	if (m_proposedUpdate) {
-		delete m_proposedUpdate; m_proposedUpdate = 0;
-	}
-	m_proposedUpdate = new FvAvailableUpdate();
-	m_proposedUpdate->SetTitle(xmlTitle);
-	m_proposedUpdate->SetReleaseNotesLink(xmlReleaseNotesLink);
+    if(!(htAuthUsername.isNull() || htAuthPassword.isNull())){
+        QUrl url(xmlReleaseNotesLink);
+        url.setUserName(htAuthUsername);
+        url.setPassword(htAuthPassword);
+        m_proposedUpdate->SetReleaseNotesLink(url);
+        QUrl encloseUrl(xmlEnclosureUrl);
+        encloseUrl.setUserName(htAuthUsername);
+        encloseUrl.setPassword(htAuthPassword);
+        m_proposedUpdate->SetEnclosureUrl(encloseUrl);
+    }
+    m_proposedUpdate->SetTitle(xmlTitle);
 	m_proposedUpdate->SetPubDate(xmlPubDate);
-	m_proposedUpdate->SetEnclosureUrl(xmlEnclosureUrl);
-	m_proposedUpdate->SetEnclosureVersion(xmlEnclosureVersion);
+    m_proposedUpdate->SetEnclosureVersion(xmlEnclosureVersion);
 	m_proposedUpdate->SetEnclosurePlatform(xmlEnclosurePlatform);
 	m_proposedUpdate->SetEnclosureLength(xmlEnclosureLength);
-	m_proposedUpdate->SetEnclosureType(xmlEnclosureType);
-
+    m_proposedUpdate->SetEnclosureType(xmlEnclosureType);
 	// Show "look, there's an update" window
 	showUpdaterWindowUpdatedWithCurrentUpdateProposal();
 
@@ -711,7 +755,7 @@ void FvUpdater::finishUpdate(QString pathToFinish)
 	QDir appDir(pathToFinish);
 	appDir.setFilter( QDir::Files | QDir::Dirs );
 
-	QFileInfoList dirEntries = appDir.entryInfoList();
+    QFileInfoList dirEntries = appDir.entryInfoList();
 	foreach (QFileInfo fi, dirEntries)
 	{
 		if ( fi.isDir() )
@@ -735,6 +779,7 @@ void FvUpdater::finishUpdate(QString pathToFinish)
 
 void FvUpdater::restartApplication()
 {
+    QMessageBox::warning(NULL,"DFCap", "DFCap deve ser reiniciado para completar a atualização");
 	// Spawn a new instance of myApplication:
     QProcess proc;
 	qDebug()<<"QCoreApplication::applicationFilePath() : "<<QCoreApplication::applicationFilePath();

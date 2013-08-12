@@ -13,7 +13,8 @@ FvUpdateWindow::FvUpdateWindow(QWidget *parent, bool skipVersionAllowed, bool re
 {
 	m_ui->setupUi(this);
 
-	m_appIconScene = 0;
+    setWindowModality(Qt::NonModal);
+    m_appIconScene = 0;
 
 	if(!skipVersionAllowed)
 		m_ui->skipThisVersionButton->hide();
@@ -53,7 +54,7 @@ bool FvUpdateWindow::UpdateWindowWithCurrentProposedUpdate()
 			.arg(QApplication::applicationName(), proposedUpdate->GetEnclosureVersion(), QApplication::applicationVersion());
 	m_ui->wouldYouLikeToDownloadLabel->setText(downloadString);
 
-	m_ui->releaseNotesWebView->stop();
+    m_ui->releaseNotesWebView->stop();
 	m_ui->releaseNotesWebView->load(proposedUpdate->GetReleaseNotesLink());
 
 	return true;
